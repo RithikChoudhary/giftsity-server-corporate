@@ -3,9 +3,10 @@ const Order = require('../../server/models/Order');
 const Product = require('../../server/models/Product');
 const CorporateCatalog = require('../../server/models/CorporateCatalog');
 const { createCashfreeOrder, getCashfreeOrder, getCashfreePayments, createRefund } = require('../../server/config/cashfree');
-const { requireCorporateAuth, requireActiveStatus } = require('../middleware/corporateAuth');
+const { requireCorporateAuth, requireActiveStatus, generateDownloadToken } = require('../middleware/corporateAuth');
 const { logActivity } = require('../../server/utils/audit');
 const { generateOrderInvoice } = require('../../server/utils/pdf');
+const { validateCorporateOrder, validatePaymentVerification } = require('../../server/middleware/validators');
 const router = express.Router();
 
 router.use(requireCorporateAuth, requireActiveStatus);
@@ -19,7 +20,7 @@ const generateOrderNumber = () => {
 };
 
 // POST /api/corporate/orders - create bulk order
-router.post('/', async (req, res) => {
+router.post('/', validateCorporateOrder, async (req, res) => {
   try {
     const { items, shippingAddress } = req.body;
     if (!items || !items.length) return res.status(400).json({ message: 'No items' });
@@ -132,7 +133,7 @@ router.post('/', async (req, res) => {
 });
 
 // POST /api/corporate/orders/verify-payment
-router.post('/verify-payment', async (req, res) => {
+router.post('/verify-payment', validatePaymentVerification, async (req, res) => {
   try {
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ message: 'orderId required' });
@@ -145,7 +146,9 @@ router.post('/verify-payment', async (req, res) => {
     const payments = await getCashfreePayments(orderId);
     const successPayment = payments.find(p => p.payment_status === 'SUCCESS');
 
-    const orders = await Order.find({ cashfreeOrderId: orderId });
+    const orders = await Order.find({ cashfreeOrderId: orderId, customerEmail: req.corporateUser.email });
+    if (!orders.length) return res.status(404).json({ message: 'No matching orders found' });
+
     for (const order of orders) {
       if (order.paymentStatus === 'paid') continue;
 
@@ -193,6 +196,16 @@ router.get('/', async (req, res) => {
     res.json({ orders, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// POST /api/corporate/orders/download-token - get a short-lived token for PDF/CSV downloads
+router.post('/download-token', async (req, res) => {
+  try {
+    const token = generateDownloadToken(req.corporateUser._id);
+    res.json({ downloadToken: token });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to generate download token' });
   }
 });
 

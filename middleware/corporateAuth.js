@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const CorporateUser = require('../../server/models/CorporateUser');
 
+const DOWNLOAD_TOKEN_SECRET_SUFFIX = '_download';
+
 // Free/personal email domains that are NOT corporate
 const FREE_EMAIL_DOMAINS = [
   'gmail.com', 'yahoo.com', 'yahoo.in', 'yahoo.co.in',
@@ -35,9 +37,22 @@ const requireCorporateAuth = async (req, res, next) => {
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.split(' ')[1];
-    } else if (req.query.token) {
-      // Support token in query param for direct downloads (PDF/CSV)
-      token = req.query.token;
+    } else if (req.query.downloadToken) {
+      // Short-lived download token for PDF/CSV (5 min expiry, separate secret)
+      token = req.query.downloadToken;
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET + DOWNLOAD_TOKEN_SECRET_SUFFIX);
+        if (decoded.purpose !== 'download') {
+          return res.status(401).json({ message: 'Invalid download token' });
+        }
+        const user = await CorporateUser.findById(decoded.corporateUserId).select('-otp -otpExpiry');
+        if (!user) return res.status(401).json({ message: 'Corporate account not found' });
+        if (user.status === 'suspended') return res.status(403).json({ message: 'Corporate account suspended.' });
+        req.corporateUser = user;
+        return next();
+      } catch (e) {
+        return res.status(401).json({ message: 'Download token expired or invalid. Please try again.' });
+      }
     }
 
     if (!token) {
@@ -70,4 +85,15 @@ const requireActiveStatus = async (req, res, next) => {
   next();
 };
 
-module.exports = { requireCorporateAuth, requireActiveStatus, isCorporateEmail, FREE_EMAIL_DOMAINS };
+/**
+ * Generate a short-lived download token (5 min) for PDF/CSV downloads.
+ */
+function generateDownloadToken(corporateUserId) {
+  return jwt.sign(
+    { corporateUserId, purpose: 'download' },
+    process.env.JWT_SECRET + DOWNLOAD_TOKEN_SECRET_SUFFIX,
+    { expiresIn: '5m' }
+  );
+}
+
+module.exports = { requireCorporateAuth, requireActiveStatus, isCorporateEmail, FREE_EMAIL_DOMAINS, generateDownloadToken };

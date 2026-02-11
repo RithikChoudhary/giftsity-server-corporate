@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const CorporateUser = require('../../server/models/CorporateUser');
 const { sendOTP } = require('../../server/utils/email');
 const { requireCorporateAuth, isCorporateEmail } = require('../middleware/corporateAuth');
@@ -8,8 +9,27 @@ const router = express.Router();
 
 const generateOTP = () => crypto.randomInt(100000, 999999).toString();
 
+// Rate limiter: max 5 OTP requests per email per 15 minutes
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.body?.email?.toLowerCase?.()?.trim() || req.ip,
+  message: { message: 'Too many OTP requests. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Rate limiter: max 10 OTP verifications per IP per 15 minutes
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: 'Too many verification attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // POST /api/corporate/auth/send-otp
-router.post('/send-otp', async (req, res) => {
+router.post('/send-otp', otpLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required' });
@@ -48,7 +68,7 @@ router.post('/send-otp', async (req, res) => {
 });
 
 // POST /api/corporate/auth/verify-otp
-router.post('/verify-otp', async (req, res) => {
+router.post('/verify-otp', verifyLimiter, async (req, res) => {
   try {
     const { email, otp, companyName, contactPerson, phone, designation, companySize } = req.body;
     if (!email || !otp) return res.status(400).json({ message: 'Email and OTP required' });
