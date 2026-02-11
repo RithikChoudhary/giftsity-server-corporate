@@ -5,6 +5,7 @@ const CorporateCatalog = require('../../server/models/CorporateCatalog');
 const { createCashfreeOrder, getCashfreeOrder, getCashfreePayments, createRefund } = require('../../server/config/cashfree');
 const { requireCorporateAuth, requireActiveStatus, generateDownloadToken } = require('../middleware/corporateAuth');
 const { logActivity } = require('../../server/utils/audit');
+const { sanitizeBody } = require('../../server/middleware/sanitize');
 const { generateOrderInvoice } = require('../../server/utils/pdf');
 const { validateCorporateOrder, validatePaymentVerification } = require('../../server/middleware/validators');
 const router = express.Router();
@@ -272,7 +273,7 @@ router.get('/:id/invoice', async (req, res) => {
 });
 
 // POST /api/corporate/orders/:id/cancel
-router.post('/:id/cancel', async (req, res) => {
+router.post('/:id/cancel', sanitizeBody, async (req, res) => {
   try {
     const order = await Order.findOne({ _id: req.params.id, customerEmail: req.corporateUser.email });
     if (!order) return res.status(404).json({ message: 'Order not found' });
