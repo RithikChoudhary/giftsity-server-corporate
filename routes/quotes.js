@@ -8,6 +8,13 @@ const { logActivity } = require('../../server/utils/audit');
 const { generateQuoteDocument } = require('../../server/utils/pdf');
 const router = express.Router();
 
+// Normalize phone to 10 digits for Cashfree
+const normalizePhone = (phone) => {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  return '9999999999';
+};
+
 router.use(requireCorporateAuth, requireActiveStatus);
 
 // GET /api/corporate/quotes - list quotes for this corporate user
@@ -129,10 +136,10 @@ router.post('/:id/approve', async (req, res) => {
       customerDetails: {
         customerId: req.corporateUser._id.toString(),
         email: req.corporateUser.email,
-        phone: req.corporateUser.phone || address.phone || '9999999999',
+        phone: normalizePhone(req.corporateUser.phone || address.phone),
         name: req.corporateUser.companyName
       },
-      returnUrl: `${process.env.CLIENT_URL}/corporate/orders?cf_id=${orderNumber}`
+      returnUrl: `${(process.env.CLIENT_URL || '').split(',')[0].trim() || 'http://localhost:5173'}/corporate/orders?cf_id=${orderNumber}`
     });
 
     order.cashfreeOrderId = orderNumber;

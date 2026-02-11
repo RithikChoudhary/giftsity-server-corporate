@@ -11,6 +11,13 @@ const router = express.Router();
 
 router.use(requireCorporateAuth, requireActiveStatus);
 
+// Normalize phone to 10 digits for Cashfree
+const normalizePhone = (phone) => {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  return '9999999999';
+};
+
 // Generate corporate order number
 const generateOrderNumber = () => {
   const d = new Date();
@@ -100,10 +107,10 @@ router.post('/', validateCorporateOrder, async (req, res) => {
       customerDetails: {
         customerId: corpUser._id.toString(),
         email: corpUser.email,
-        phone: corpUser.phone || shippingAddress.phone || '9999999999',
+        phone: normalizePhone(corpUser.phone || shippingAddress.phone),
         name: corpUser.companyName
       },
-      returnUrl: `${process.env.CLIENT_URL}/corporate/orders?cf_id=${cfOrderId}`
+      returnUrl: `${(process.env.CLIENT_URL || '').split(',')[0].trim() || 'http://localhost:5173'}/corporate/orders?cf_id=${cfOrderId}`
     });
 
     for (const order of orders) {
