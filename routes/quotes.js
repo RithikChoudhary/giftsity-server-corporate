@@ -5,6 +5,7 @@ const Product = require('../../server/models/Product');
 const { createCashfreeOrder } = require('../../server/config/cashfree');
 const { requireCorporateAuth, requireActiveStatus } = require('../middleware/corporateAuth');
 const { logActivity } = require('../../server/utils/audit');
+const { generateQuoteDocument } = require('../../server/utils/pdf');
 const router = express.Router();
 
 router.use(requireCorporateAuth, requireActiveStatus);
@@ -41,6 +42,29 @@ router.get('/:id', async (req, res) => {
     res.json({ quote });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET /api/corporate/quotes/:id/pdf - download quote as PDF
+router.get('/:id/pdf', async (req, res) => {
+  try {
+    const quote = await CorporateQuote.findOne({
+      _id: req.params.id,
+      $or: [
+        { corporateUserId: req.corporateUser._id },
+        { contactEmail: req.corporateUser.email }
+      ]
+    }).populate('items.productId', 'images title').lean();
+
+    if (!quote) return res.status(404).json({ message: 'Quote not found' });
+
+    const pdfBuffer = await generateQuoteDocument(quote);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="quote-${quote.quoteNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Quote PDF error:', err.message);
+    res.status(500).json({ message: 'Failed to generate quote PDF' });
   }
 });
 

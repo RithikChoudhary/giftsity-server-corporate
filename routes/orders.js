@@ -5,6 +5,7 @@ const CorporateCatalog = require('../../server/models/CorporateCatalog');
 const { createCashfreeOrder, getCashfreeOrder, getCashfreePayments, createRefund } = require('../../server/config/cashfree');
 const { requireCorporateAuth, requireActiveStatus } = require('../middleware/corporateAuth');
 const { logActivity } = require('../../server/utils/audit');
+const { generateOrderInvoice } = require('../../server/utils/pdf');
 const router = express.Router();
 
 router.use(requireCorporateAuth, requireActiveStatus);
@@ -195,6 +196,29 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/corporate/orders/export/csv - export order history as CSV
+router.get('/export/csv', async (req, res) => {
+  try {
+    const filter = { orderType: 'b2b_direct', customerEmail: req.corporateUser.email };
+    const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
+
+    const header = 'Order Number,Date,Status,Payment Status,Items,Total Amount,Shipping City\n';
+    const rows = orders.map(o => {
+      const date = new Date(o.createdAt).toISOString().split('T')[0];
+      const itemCount = (o.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
+      const city = o.shippingAddress?.city || '';
+      return `${o.orderNumber},${date},${o.status},${o.paymentStatus},${itemCount},${o.totalAmount},"${city}"`;
+    }).join('\n');
+
+    const csv = header + rows;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="orders-${Date.now()}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    res.status(500).json({ message: 'Export failed' });
+  }
+});
+
 // GET /api/corporate/orders/:id
 router.get('/:id', async (req, res) => {
   try {
@@ -204,6 +228,26 @@ router.get('/:id', async (req, res) => {
     res.json({ order });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET /api/corporate/orders/:id/invoice - download PDF invoice
+router.get('/:id/invoice', async (req, res) => {
+  try {
+    const order = await Order.findOne({ _id: req.params.id, customerEmail: req.corporateUser.email }).lean();
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    if (order.paymentStatus !== 'paid') {
+      return res.status(400).json({ message: 'Invoice is only available for paid orders' });
+    }
+
+    const pdfBuffer = await generateOrderInvoice(order, req.corporateUser);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="invoice-${order.orderNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Invoice generation error:', err.message);
+    res.status(500).json({ message: 'Failed to generate invoice' });
   }
 });
 
@@ -237,6 +281,12 @@ router.post('/:id/cancel', async (req, res) => {
       }
       await order.save();
     }
+
+    // Send cancellation confirmation email
+    try {
+      const { sendCorporateOrderStatusEmail } = require('../../server/utils/email');
+      await sendCorporateOrderStatusEmail(req.corporateUser.email, order, 'cancelled');
+    } catch (e) { console.error('Cancel confirmation email error:', e.message); }
 
     logActivity({ domain: 'corporate', action: 'corporate_order_cancelled', actorRole: 'corporate', actorId: req.corporateUser._id, actorEmail: req.corporateUser.email, targetType: 'Order', targetId: order._id, message: `Corporate order ${order.orderNumber} cancelled`, metadata: { reason: order.cancelReason } });
     res.json({ message: 'Order cancelled', order });

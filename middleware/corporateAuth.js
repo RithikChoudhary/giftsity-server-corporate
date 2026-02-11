@@ -31,11 +31,18 @@ function isCorporateEmail(email) {
 const requireCorporateAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Authentication required' });
+    let token;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.query.token) {
+      // Support token in query param for direct downloads (PDF/CSV)
+      token = req.query.token;
     }
 
-    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const user = await CorporateUser.findById(decoded.corporateUserId).select('-otp -otpExpiry');
