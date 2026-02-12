@@ -2,7 +2,11 @@ const express = require('express');
 const CorporateCatalog = require('../../server/models/CorporateCatalog');
 const Product = require('../../server/models/Product');
 const { requireCorporateAuth, requireActiveStatus } = require('../middleware/corporateAuth');
+const logger = require('../../server/utils/logger');
 const router = express.Router();
+
+// Helper to escape user input for safe use in RegExp (prevents ReDoS)
+const escapeRegex = (str) => (typeof str === 'string' ? str : '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 router.use(requireCorporateAuth, requireActiveStatus);
 
@@ -35,8 +39,8 @@ router.get('/', async (req, res) => {
       }));
 
     // Apply additional filters
-    if (search) {
-      const regex = new RegExp(search, 'i');
+    if (search && typeof search === 'string') {
+      const regex = new RegExp(escapeRegex(search), 'i');
       products = products.filter(p => regex.test(p.title) || regex.test(p.description));
     }
     if (category) {
@@ -64,7 +68,7 @@ router.get('/', async (req, res) => {
 
     res.json({ products: paged, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)), tags: allTags });
   } catch (err) {
-    console.error('Corporate catalog error:', err.message);
+    logger.error('Corporate catalog error:', err.message);
     res.status(500).json({ message: 'Server error' });
   }
 });

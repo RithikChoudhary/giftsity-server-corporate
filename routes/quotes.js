@@ -6,6 +6,7 @@ const { createCashfreeOrder } = require('../../server/config/cashfree');
 const { requireCorporateAuth, requireActiveStatus } = require('../middleware/corporateAuth');
 const { logActivity } = require('../../server/utils/audit');
 const { generateQuoteDocument } = require('../../server/utils/pdf');
+const logger = require('../../server/utils/logger');
 const router = express.Router();
 
 // Normalize phone to 10 digits for Cashfree
@@ -70,7 +71,7 @@ router.get('/:id/pdf', async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename="quote-${quote.quoteNumber}.pdf"`);
     res.send(pdfBuffer);
   } catch (err) {
-    console.error('Quote PDF error:', err.message);
+    logger.error('Quote PDF error:', err.message);
     res.status(500).json({ message: 'Failed to generate quote PDF' });
   }
 });
@@ -165,7 +166,7 @@ router.post('/:id/approve', async (req, res) => {
       env: process.env.CASHFREE_ENV || 'sandbox'
     });
   } catch (err) {
-    console.error('Quote approve error:', err.message);
+    logger.error('Quote approve error:', err.message);
     res.status(500).json({ message: 'Failed to process quote' });
   }
 });

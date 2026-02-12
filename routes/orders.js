@@ -8,6 +8,7 @@ const { logActivity } = require('../../server/utils/audit');
 const { sanitizeBody } = require('../../server/middleware/sanitize');
 const { generateOrderInvoice } = require('../../server/utils/pdf');
 const { validateCorporateOrder, validatePaymentVerification } = require('../../server/middleware/validators');
+const logger = require('../../server/utils/logger');
 const router = express.Router();
 
 router.use(requireCorporateAuth, requireActiveStatus);
@@ -135,7 +136,7 @@ router.post('/', validateCorporateOrder, async (req, res) => {
       env: process.env.CASHFREE_ENV || 'sandbox'
     });
   } catch (err) {
-    console.error('Corporate create order error:', err?.response?.data || err.message);
+    logger.error('Corporate create order error:', err?.response?.data || err.message);
     res.status(500).json({ message: 'Failed to create order', error: err.message });
   }
 });
@@ -182,7 +183,7 @@ router.post('/verify-payment', validatePaymentVerification, async (req, res) => 
 
     res.json({ message: 'Payment verified', orders });
   } catch (err) {
-    console.error('Corporate verify payment error:', err.message);
+    logger.error('Corporate verify payment error:', err.message);
     res.status(500).json({ message: 'Verification failed' });
   }
 });
@@ -267,7 +268,7 @@ router.get('/:id/invoice', async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename="invoice-${order.orderNumber}.pdf"`);
     res.send(pdfBuffer);
   } catch (err) {
-    console.error('Invoice generation error:', err.message);
+    logger.error('Invoice generation error:', err.message);
     res.status(500).json({ message: 'Failed to generate invoice' });
   }
 });
@@ -297,7 +298,7 @@ router.post('/:id/cancel', sanitizeBody, async (req, res) => {
         order.paymentStatus = 'refunded';
         order.refundId = refundId;
       } catch (refundErr) {
-        console.error('[Refund] Failed:', refundErr.message);
+        logger.error('[Refund] Failed:', refundErr.message);
         order.paymentStatus = 'refund_pending';
       }
       await order.save();
@@ -307,7 +308,7 @@ router.post('/:id/cancel', sanitizeBody, async (req, res) => {
     try {
       const { sendCorporateOrderStatusEmail } = require('../../server/utils/email');
       await sendCorporateOrderStatusEmail(req.corporateUser.email, order, 'cancelled');
-    } catch (e) { console.error('Cancel confirmation email error:', e.message); }
+    } catch (e) { logger.error('Cancel confirmation email error:', e.message); }
 
     logActivity({ domain: 'corporate', action: 'corporate_order_cancelled', actorRole: 'corporate', actorId: req.corporateUser._id, actorEmail: req.corporateUser.email, targetType: 'Order', targetId: order._id, message: `Corporate order ${order.orderNumber} cancelled`, metadata: { reason: order.cancelReason } });
     res.json({ message: 'Order cancelled', order });

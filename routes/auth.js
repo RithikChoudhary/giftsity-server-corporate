@@ -7,6 +7,7 @@ const CorporateUser = require('../../server/models/CorporateUser');
 const { sendOTP } = require('../../server/utils/email');
 const { requireCorporateAuth, isCorporateEmail } = require('../middleware/corporateAuth');
 const { sanitizeBody } = require('../../server/middleware/sanitize');
+const logger = require('../../server/utils/logger');
 const router = express.Router();
 
 const generateOTP = () => crypto.randomInt(100000, 999999).toString();
@@ -64,7 +65,7 @@ router.post('/send-otp', otpLimiter, async (req, res) => {
 
     res.json({ message: 'OTP sent to your corporate email', isNewUser: !user.contactPerson });
   } catch (err) {
-    console.error('Corporate send OTP error:', err);
+    logger.error('Corporate send OTP error:', err);
     res.status(500).json({ message: 'Failed to send OTP' });
   }
 });
@@ -126,7 +127,7 @@ router.post('/verify-otp', verifyLimiter, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Corporate verify OTP error:', err);
+    logger.error('Corporate verify OTP error:', err);
     res.status(500).json({ message: 'Verification failed' });
   }
 });

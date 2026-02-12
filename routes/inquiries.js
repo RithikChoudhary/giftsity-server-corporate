@@ -2,6 +2,7 @@ const express = require('express');
 const B2BInquiry = require('../../server/models/B2BInquiry');
 const { sendB2BInquiryNotification } = require('../../server/utils/email');
 const { sanitizeBody } = require('../../server/middleware/sanitize');
+const logger = require('../../server/utils/logger');
 const router = express.Router();
 
 // POST /api/corporate/inquiries - public inquiry (no auth required)
@@ -28,7 +29,7 @@ router.post('/', sanitizeBody, async (req, res) => {
 
     await inquiry.save();
 
-    try { await sendB2BInquiryNotification(inquiry); } catch (e) { console.error('B2B notification failed:', e.message); }
+    try { await sendB2BInquiryNotification(inquiry); } catch (e) { logger.error('B2B notification failed:', e.message); }
 
     res.status(201).json({ message: 'Thank you! We\'ll get back to you within 24 hours.', inquiry: { _id: inquiry._id } });
   } catch (err) {
