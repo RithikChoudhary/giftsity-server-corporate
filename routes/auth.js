@@ -1,10 +1,12 @@
 const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const rateLimit = require('express-rate-limit');
 const CorporateUser = require('../../server/models/CorporateUser');
 const { sendOTP } = require('../../server/utils/email');
 const { requireCorporateAuth, isCorporateEmail } = require('../middleware/corporateAuth');
+const { sanitizeBody } = require('../../server/middleware/sanitize');
 const router = express.Router();
 
 const generateOTP = () => crypto.randomInt(100000, 999999).toString();
@@ -13,7 +15,7 @@ const generateOTP = () => crypto.randomInt(100000, 999999).toString();
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  keyGenerator: (req) => req.body?.email?.toLowerCase?.()?.trim() || req.ip,
+  keyGenerator: (req) => req.body?.email?.toLowerCase?.()?.trim() || 'unknown',
   message: { message: 'Too many OTP requests. Please try again in 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false
@@ -150,7 +152,7 @@ router.get('/me', requireCorporateAuth, async (req, res) => {
 });
 
 // PUT /api/corporate/auth/profile
-router.put('/profile', requireCorporateAuth, async (req, res) => {
+router.put('/profile', requireCorporateAuth, sanitizeBody, async (req, res) => {
   try {
     const u = req.corporateUser;
     const { companyName, contactPerson, phone, designation, companySize, gstNumber, billingAddress, shippingAddresses } = req.body;
@@ -162,7 +164,17 @@ router.put('/profile', requireCorporateAuth, async (req, res) => {
     if (companySize) u.companySize = companySize;
     if (gstNumber !== undefined) u.gstNumber = gstNumber;
     if (billingAddress) u.billingAddress = billingAddress;
-    if (shippingAddresses) u.shippingAddresses = shippingAddresses;
+
+    // Sanitize shipping address _ids to prevent CastError
+    if (shippingAddresses) {
+      u.shippingAddresses = (shippingAddresses || []).map(addr => {
+        const { _id, ...rest } = addr;
+        if (_id && mongoose.Types.ObjectId.isValid(_id)) {
+          return { _id, ...rest };
+        }
+        return rest; // Let Mongoose auto-generate _id for new addresses
+      });
+    }
 
     await u.save();
     res.json({ message: 'Profile updated', user: u });
